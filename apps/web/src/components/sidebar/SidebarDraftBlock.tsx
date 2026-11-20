@@ -20,6 +20,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   composerDraftHasUserContent,
   DraftId,
+  EMPTY_THREAD_DRAFT,
   useComposerDraftStore,
   type ComposerThreadDraftState,
   type DraftSessionState,
@@ -59,9 +60,11 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   const preview =
     promptPreview.length > 0
       ? promptPreview
-      : gt("{count, plural, one {{count} attachment} other {{count} attachments}}", {
-          count: attachmentCount,
-        });
+      : attachmentCount > 0
+        ? gt("{count, plural, one {{count} attachment} other {{count} attachments}}", {
+            count: attachmentCount,
+          })
+        : gt("New thread");
   const accessibility = resolveSidebarRowAccessibility({
     title: preview,
     statusLabel: gt("Unsent draft"),
@@ -182,11 +185,8 @@ export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
     if (props.routeDraftId !== null) {
       const draftId = DraftId.make(props.routeDraftId);
       const session = draftThreadsByThreadKey[draftId];
-      const composer = draftsByThreadKey[draftId];
-      row =
-        session && session.promotedTo == null && composer && composerDraftHasUserContent(composer)
-          ? { draftId, session, composer }
-          : null;
+      const composer = draftsByThreadKey[draftId] ?? EMPTY_THREAD_DRAFT;
+      row = session && session.promotedTo == null ? { draftId, session, composer } : null;
     }
     setFrozenActive({ routeDraftId: props.routeDraftId, row });
   }

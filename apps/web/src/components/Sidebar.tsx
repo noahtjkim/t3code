@@ -108,6 +108,8 @@ import { isMacPlatform } from "~/lib/utils";
 import { readLocalApi } from "../localApi";
 import { configuredHostedAppUrl } from "../hostedPairing";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
+import { SPLIT_MAX_PANES, splitProjectKey, visiblePanes } from "../splitView.logic";
+import { useSplitViewStore } from "../splitViewStore";
 import { SidebarFolderDrop } from "./sidebar/SidebarFolderDrop";
 import {
   pickableProjectGroups,
@@ -1207,7 +1209,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       if (session.promotedTo != null) {
         continue;
       }
-      if (!composerDraftHasUserContent(store.draftsByThreadKey[draftKey])) {
+      if (
+        draftKey !== routeDraftIdForRows &&
+        !composerDraftHasUserContent(store.draftsByThreadKey[draftKey])
+      ) {
         continue;
       }
       if (
@@ -2657,6 +2662,25 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
+        const splitState = useSplitViewStore.getState();
+        const splitKey = splitProjectKey({
+          environmentId: thread.environmentId,
+          projectId: thread.projectId,
+        });
+        const splitMain = splitState.screen.mainThreadKey
+          ? parseScopedThreadKey(splitState.screen.mainThreadKey)
+          : null;
+        const splitPanes = visiblePanes(splitState.panesByProject[splitKey] ?? [], splitMain);
+        const splitView =
+          splitState.screen.projectKey === splitKey &&
+          splitState.screen.mainThreadKey !== null &&
+          threadKey !== splitState.screen.mainThreadKey &&
+          thread.lineage.sideChat !== true &&
+          !splitPanes.some((pane) => scopedThreadKey(pane) === threadKey)
+            ? splitPanes.length >= SPLIT_MAX_PANES
+              ? ("full" as const)
+              : ("available" as const)
+            : undefined;
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
@@ -2664,6 +2688,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 threadRef.environmentId,
                 AuthOrchestrationOperateScope,
               ),
+              ...(splitView ? { splitView } : {}),
               branch: thread.branch ?? null,
               // An archived project is not a filter choice.
               projectFilter:
@@ -2714,6 +2739,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           return;
         }
         switch (clicked.value) {
+          case "open-in-split-view":
+            splitState.openPane(splitKey, threadRef, splitMain);
+            return;
           case "filter-by-project":
             if (threadProjectGroup) {
               setProjectScopeKeys(

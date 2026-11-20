@@ -25,6 +25,7 @@ import { isWindowsPlatform } from "../lib/utils";
 import { environmentSummaries } from "../state/presentation";
 import { environmentShell } from "../state/shell";
 import { environmentThreadShells } from "../state/threads";
+import { isThreadOnSplitScreen } from "../splitViewStore";
 import {
   hasDesktopNotifications,
   hasNotificationSound,
@@ -165,7 +166,8 @@ export function startThreadNotifications(
       inAppNotificationsEnabled &&
       document.visibilityState === "visible" &&
       document.hasFocus() &&
-      (active.environmentId !== environmentId || active.threadId !== thread.id)
+      (active.environmentId !== environmentId || active.threadId !== thread.id) &&
+      !isThreadOnSplitScreen({ environmentId, threadId: thread.id })
     ) {
       const toastKey = threadKey({ environmentId, threadId: thread.id });
       const toastId: ToastId = toastManager.add({

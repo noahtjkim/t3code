@@ -387,6 +387,7 @@ import { observeResize } from "~/lib/observeResize";
 import { ThreadVisitWatermark } from "./chat/ThreadVisitWatermark";
 import { ChatTerminalDrawers } from "./chat/ChatTerminalDrawers";
 import { ChatRightPanel } from "./chat/ChatRightPanel";
+import { SplitViewFrame } from "./splitView/SplitViewFrame";
 import { useDraftEnvironmentRouting } from "./chat/useDraftEnvironmentRouting";
 import { branchMismatchBannerItem, extensionStatusBannerItem } from "./chat/ThreadActivityBanners";
 import { ThreadNow } from "./chat/ThreadNow";
@@ -3403,7 +3404,12 @@ export default function ChatView(props: ChatViewProps) {
         />
       )}
       {rightPanelControlsAtRoot && !embedded ? panelLayoutControls : null}
-      <div
+      <SplitViewFrame
+        mainThreadRef={embedded || !isServerThread ? null : activeThreadRef}
+        projectRef={embedded ? null : activeProjectRef}
+        rightPanelMaximized={rightPanelMaximized}
+        reserveTitlebarControls={!rightPanelControlsAtRoot && !rightPanelControlsInPanel}
+        runMainShellCommand={runSideChatShellCommandStable}
         className={cn(
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
@@ -4057,7 +4063,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddTerminalContext={addTerminalContextToDraftStable}
           />
         )}
-      </div>
+      </SplitViewFrame>
 
       {rightPanelPresent && activeThreadRef && !embedded ? (
         <ChatRightPanel

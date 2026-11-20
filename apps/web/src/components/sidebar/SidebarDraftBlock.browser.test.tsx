@@ -82,3 +82,50 @@ it("keeps draft previews current through edits, promotion and removal", async ()
   await act(() => initial.clearDraftThread(nextDraftId));
   await expect.element(row).not.toBeInTheDocument();
 });
+
+it("shows the open draft as a new thread even when empty, and hides other empty drafts", async () => {
+  const initial = useComposerDraftStore.getState();
+  using _store = {
+    [Symbol.dispose]: () => useComposerDraftStore.setState(initial, true),
+  };
+  useComposerDraftStore.setState({
+    draftsByThreadKey: {},
+    draftThreadsByThreadKey: {},
+    logicalProjectDraftThreadKeyByLogicalProjectKey: {},
+  });
+  const environmentId = EnvironmentId.make("empty-draft-environment");
+  const openDraftId = DraftId.make("open-empty-draft");
+  const otherDraftId = DraftId.make("other-empty-draft");
+  initial.setProjectDraftThreadId(
+    scopeProjectRef(environmentId, ProjectId.make("open-project")),
+    openDraftId,
+    { threadId: ThreadId.make("open-thread") },
+  );
+  initial.setProjectDraftThreadId(
+    scopeProjectRef(environmentId, ProjectId.make("other-project")),
+    otherDraftId,
+    { threadId: ThreadId.make("other-thread") },
+  );
+  const block = (routeDraftId: string | null) => (
+    <ul>
+      <SidebarDraftBlock
+        projectByKey={new Map()}
+        projectDisplayNameByKey={new Map()}
+        scopedProjectKeys={null}
+        routeDraftId={routeDraftId}
+        onNavigateToDraft={vi.fn()}
+        onDraftContextMenu={vi.fn()}
+      />
+    </ul>
+  );
+  await using screen = await render(block(null));
+  const rows = screen.getByTestId("sidebar-draft-row");
+  await expect.element(rows).not.toBeInTheDocument();
+
+  await screen.rerender(block(openDraftId));
+  await expect.element(rows).toHaveAccessibleName("New thread, Unsent draft");
+  expect(screen.container.querySelectorAll('[data-testid="sidebar-draft-row"]')).toHaveLength(1);
+
+  await screen.rerender(block(null));
+  await expect.element(rows).not.toBeInTheDocument();
+});

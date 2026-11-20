@@ -885,7 +885,7 @@ const EMPTY_COMPOSER_DRAFT_MODEL_STATE = Object.freeze<ComposerDraftModelState>(
   modelSelectionExplicit: false,
 });
 
-const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
+export const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   prompt: "",
   images: EMPTY_IMAGES,
   files: EMPTY_FILES,

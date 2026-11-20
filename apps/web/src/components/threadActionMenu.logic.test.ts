@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildThreadActionMenuItems, type ThreadActionMenuState } from "./threadActionMenu.logic";
+import {
+  buildThreadActionMenuItems,
+  threadActionRequiresOperate,
+  type ThreadActionMenuState,
+} from "./threadActionMenu.logic";
 
 const baseState: ThreadActionMenuState = {
   canOperate: true,
@@ -78,5 +82,29 @@ describe("buildThreadActionMenuItems", () => {
   it("disables only rename where no inline title editor exists", () => {
     const items = buildThreadActionMenuItems({ ...baseState, canRename: false });
     expect(items.filter((item) => item.disabled).map((item) => item.id)).toEqual(["rename"]);
+  });
+
+  it("offers split view only when available and disables it once full", () => {
+    const find = (splitView?: "available" | "full") =>
+      buildThreadActionMenuItems({ ...baseState, ...(splitView ? { splitView } : {}) }).find(
+        (item) => item.id === "open-in-split-view",
+      );
+    expect(find(undefined)).toBeUndefined();
+    expect(find("available")).toMatchObject({
+      label: "Open in split view",
+      icon: "columns-2",
+    });
+    expect(find("available")?.disabled).toBeFalsy();
+    expect(find("full")).toMatchObject({
+      label: "Split view is full",
+      icon: "columns-2",
+      disabled: true,
+    });
+    expect(threadActionRequiresOperate("open-in-split-view")).toBe(false);
+    expect(
+      buildThreadActionMenuItems({ ...baseState, canOperate: false, splitView: "available" }).find(
+        (item) => item.id === "open-in-split-view",
+      )?.disabled,
+    ).toBeFalsy();
   });
 });

@@ -6,6 +6,7 @@ import { m, type MessageResolver } from "../i18n/messages";
 
 export type ThreadActionMenuId =
   | "find"
+  | "open-in-split-view"
   | "new-thread-on-branch"
   | "filter-by-project"
   | "turn-into-project"
@@ -123,12 +124,15 @@ export interface ThreadActionMenuState {
   readonly canShareWithGuest?: boolean;
   /** A No project thread with its own folder, on a server that can promote it. */
   readonly canTurnIntoProject?: boolean;
+  /** Absent where the thread cannot join the split view on screen. */
+  readonly splitView?: "available" | "full";
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
   return ![
     "find",
+    "open-in-split-view",
     "new-thread-on-branch",
     "project-settings",
     "mark-unread",
@@ -148,6 +152,19 @@ export function buildThreadActionMenuItems(
   const items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> = [
     ...(state.canFind
       ? [{ id: "find" as const, label: resolve(msg("Find in thread")), icon: "text-search" }]
+      : []),
+    ...(state.splitView
+      ? [
+          {
+            id: "open-in-split-view" as const,
+            label:
+              state.splitView === "full"
+                ? resolve(msg("Split view is full"))
+                : resolve(msg("Open in split view")),
+            icon: "columns-2",
+            disabled: state.splitView === "full",
+          },
+        ]
       : []),
     ...(state.branch
       ? [

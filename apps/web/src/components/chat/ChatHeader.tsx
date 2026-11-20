@@ -14,6 +14,7 @@ import { T, useGT, Var } from "gt-react";
 import { ChevronDownIcon } from "lucide-react";
 import {
   memo,
+  use,
   useEffect,
   useRef,
   useState,
@@ -44,6 +45,7 @@ import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import { useClientSettings } from "../../hooks/useSettings";
 import { GuestShareIndicator } from "./GuestShareControls";
+import { SplitViewChromeContext } from "../splitView/splitViewChrome";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -88,6 +90,7 @@ export const ChatHeader = memo(function ChatHeader({
   const activeProjectName = activeProject?.isScratch ? gt("No project") : activeProject?.title;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const interfaceFont = useClientSettings((settings) => settings.fontFamilySans);
+  const projectBarShown = use(SplitViewChromeContext);
   const breadcrumbContainerRef = useRef<HTMLDivElement>(null);
   const [collapseParentTitle, setCollapseParentTitle] = useState(false);
   const activeThreadRef = scopeThreadRef(activeThreadEnvironmentId, activeThreadId);
@@ -158,6 +161,7 @@ export const ChatHeader = memo(function ChatHeader({
     parentThreadLink,
     interfaceFont,
     isRenamingTitle,
+    projectBarShown,
   ]);
   const renameCommittedRef = useRef(false);
   const startRename = () => {
@@ -261,7 +265,7 @@ export const ChatHeader = memo(function ChatHeader({
         ariaLabel={gt("Thread breadcrumb")}
         className="flex-1 overflow-clip [overflow-clip-margin:2px]"
       >
-        {activeProject ? (
+        {activeProject && !projectBarShown ? (
           <>
             <WorkspaceBreadcrumbItem className="shrink">
               <Tooltip>
