@@ -11,6 +11,7 @@ import {
   resizeFractions,
   resolveSplitDrop,
   resolveSplitLayout,
+  splitPaneSetKey,
   splitProjectKey,
   swapWithMain,
   visiblePanes,
@@ -28,6 +29,19 @@ describe("splitProjectKey", () => {
     expect(
       splitProjectKey({ environmentId: "env-1" as EnvironmentId, projectId: ProjectId.make("p") }),
     ).toBe("env-1:p");
+  });
+});
+
+describe("splitPaneSetKey", () => {
+  it("keys a grouped project by its group and an ungrouped one by itself", () => {
+    const groups = [{ id: "g1", name: "Acme", memberKeys: ["env-1:p"] }];
+    const env = "env-1" as EnvironmentId;
+    expect(splitPaneSetKey(groups, { environmentId: env, projectId: ProjectId.make("p") })).toBe(
+      "group:g1",
+    );
+    expect(splitPaneSetKey(groups, { environmentId: env, projectId: ProjectId.make("q") })).toBe(
+      "env-1:q",
+    );
   });
 });
 

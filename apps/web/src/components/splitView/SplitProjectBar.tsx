@@ -1,7 +1,7 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useGT } from "gt-react";
-import { Columns2Icon, LayoutGridIcon } from "lucide-react";
+import { Columns2Icon, FolderIcon, LayoutGridIcon } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 
 import { isElectron } from "../../env";
@@ -32,6 +32,8 @@ function findTitlebarControls() {
 export const SplitProjectBar = memo(function SplitProjectBar(props: {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
+  /** Set when the panes come from a project group, which the bar names instead of the project. */
+  readonly groupName: string | null;
   /** The window's fixed top-right controls sit over this bar's right end. */
   readonly reserveTitlebarControls: boolean;
 }) {
@@ -73,7 +75,12 @@ export const SplitProjectBar = memo(function SplitProjectBar(props: {
       }
     >
       <div className="flex min-w-0 flex-1 items-center gap-1.5 text-sm font-medium">
-        {project ? (
+        {props.groupName !== null ? (
+          <>
+            <FolderIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate">{props.groupName}</span>
+          </>
+        ) : project ? (
           <>
             <ProjectFavicon project={project} className="size-3.5" />
             <span className="min-w-0 truncate">

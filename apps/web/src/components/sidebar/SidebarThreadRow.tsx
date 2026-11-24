@@ -578,6 +578,8 @@ type SidebarThreadRowProps = {
   // "folder-multiline" adds the card's branch and PR line under it.
   variant: "card" | "slim" | "folder" | "folder-multiline";
   navigationParent?: string | undefined;
+  /** Inside a folder that sits in a project group, one level deeper. */
+  nested?: boolean | undefined;
   variantAction: SidebarSweepAction;
   settlementSupported: boolean;
   snoozeSupported: boolean;
@@ -1335,6 +1337,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_--spacing(9)]",
           metaLine !== null && multiline && "[contain-intrinsic-size:auto_--spacing(13.5)]",
           sortable?.isDragging && "relative z-20",
+          props.nested && "ps-3",
         )}
       >
         <Tooltip disabled={isRenaming || sortable?.isDragging}>

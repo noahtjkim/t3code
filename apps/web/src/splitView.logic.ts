@@ -1,6 +1,8 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
 
+import { projectGroupOf, projectMemberKey, type ProjectGroup } from "./projectGroups.logic";
+
 export type SplitLayoutMode = "columns" | "grid";
 export type SplitLayout = "single" | "columns" | "grid" | "hidden";
 
@@ -15,7 +17,21 @@ export function splitProjectKey(ref: {
   environmentId: EnvironmentId;
   projectId: ProjectId;
 }): string {
-  return `${ref.environmentId}:${ref.projectId}`;
+  return projectMemberKey(ref);
+}
+
+export function groupPaneSetKey(groupId: string): string {
+  return `group:${groupId}`;
+}
+
+/** Sessions share one set of panes per group, or per project when it is in no group. */
+export function splitPaneSetKey(
+  groups: readonly ProjectGroup[],
+  ref: { environmentId: EnvironmentId; projectId: ProjectId },
+): string {
+  const key = splitProjectKey(ref);
+  const group = projectGroupOf(groups, key);
+  return group ? groupPaneSetKey(group.id) : key;
 }
 
 export function addPane(

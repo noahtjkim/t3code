@@ -15,6 +15,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 import "~/index.css";
 
 import { act, render } from "../../../test/render";
+import { useProjectGroupStore } from "../../projectGroupStore";
 import { splitProjectKey } from "../../splitView.logic";
 import { useSplitViewStore } from "../../splitViewStore";
 import {
@@ -86,6 +87,7 @@ async function setup(mode: "columns" | "grid" = "columns", panes = [ref("a"), re
   composerDrops.length = 0;
   endThreadContextDrag();
   await page.viewport(1600, 1000);
+  useProjectGroupStore.setState({ groups: [] });
   useSplitViewStore.setState({
     panesByProject: { [splitProjectKey(projectRef)]: panes },
     mode,
@@ -571,6 +573,42 @@ describe("SplitViewFrame", () => {
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Only sessions from Alpha can open here" }),
     );
+  });
+
+  it("opens sessions from any project in the main session's group", async () => {
+    await setup("columns", []);
+    useProjectGroupStore.setState({
+      groups: [{ id: "g1", name: "Acme", memberKeys: ["env-1:project-1", "env-1:project-2"] }],
+    });
+    useSplitViewStore.setState({ panesByProject: { "group:g1": [ref("a")] } });
+    using toast = vi.spyOn(toastManager, "add");
+    await using screen = await renderFrame({ width: 1400, height: 900 });
+    await expect.element(screen.getByTestId("pane-a")).toBeInTheDocument();
+    await startDrag();
+
+    dropOn(screen.getByText("Drop to open in split view").element(), ["other-1"]);
+    dropOn(screen.getByText("Drop to open in split view").element(), ["gone"]);
+
+    await expect.element(screen.getByTestId("pane-other-1")).toBeInTheDocument();
+    expect(
+      useSplitViewStore.getState().panesByProject["group:g1"]?.map((pane) => pane.threadId),
+    ).toEqual(["a", "other-1"]);
+    expect(projectBar(screen.container)?.textContent).toContain("Acme");
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Only sessions from the Acme group can open here" }),
+    );
+  });
+
+  it("stops showing a pane whose project left the group", async () => {
+    await setup("columns", []);
+    useProjectGroupStore.setState({
+      groups: [{ id: "g1", name: "Acme", memberKeys: ["env-1:project-1"] }],
+    });
+    useSplitViewStore.setState({ panesByProject: { "group:g1": [ref("a"), ref("other-1")] } });
+    await using screen = await renderFrame({ width: 1400, height: 900 });
+
+    await expect.element(screen.getByTestId("pane-a")).toBeInTheDocument();
+    expect(screen.container.querySelector('[data-testid="pane-other-1"]')).toBeNull();
   });
 
   it.each([

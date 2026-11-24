@@ -26,9 +26,12 @@ import {
   resolveSplitLayout,
   SPLIT_MAX_PANES,
   type SplitDropTarget,
+  splitPaneSetKey,
   splitProjectKey,
   visiblePanes,
 } from "../../splitView.logic";
+import { projectGroupOf } from "../../projectGroups.logic";
+import { useProjectGroupStore } from "../../projectGroupStore";
 import { useSplitViewStore } from "../../splitViewStore";
 import { readProject, readThreadShell } from "../../state/entities";
 import { buildThreadRouteParams } from "../../threadRoutes";
@@ -80,7 +83,21 @@ export function SplitViewFrame({
 }) {
   const gt = useGT();
   const navigate = useNavigate();
-  const projectKey = projectRef ? splitProjectKey(projectRef) : null;
+  const groups = useProjectGroupStore((state) => state.groups);
+  // Sessions of every project in the main session's group share this pane set.
+  const projectKey = projectRef ? splitPaneSetKey(groups, projectRef) : null;
+  const groupName = projectRef
+    ? (projectGroupOf(groups, splitProjectKey(projectRef))?.name ?? null)
+    : null;
+  const inPaneSet = (ref: ScopedThreadRef) => {
+    const shell = readThreadShell(ref);
+    // An unloaded shell stays listed; its pane shows the session as unavailable.
+    return (
+      shell === null ||
+      splitPaneSetKey(groups, { environmentId: ref.environmentId, projectId: shell.projectId }) ===
+        projectKey
+    );
+  };
   const mainKey = mainThreadRef ? scopedThreadKey(mainThreadRef) : null;
   const storedPanes = useSplitViewStore((state) =>
     projectKey === null ? undefined : state.panesByProject[projectKey],
@@ -107,7 +124,8 @@ export function SplitViewFrame({
         }),
   );
 
-  const panes = projectKey === null ? [] : visiblePanes(storedPanes ?? [], mainThreadRef);
+  const panes =
+    projectKey === null ? [] : visiblePanes(storedPanes ?? [], mainThreadRef).filter(inPaneSet);
   const sessions = panes.length + 1;
   const hiddenByConditions =
     projectKey === null || mainThreadRef === null || rightPanelMaximized || isNarrow || background;
@@ -174,8 +192,10 @@ export function SplitViewFrame({
         const shell = readThreadShell(ref);
         if (
           shell === null ||
-          splitProjectKey({ environmentId: ref.environmentId, projectId: shell.projectId }) !==
-            projectKey
+          splitPaneSetKey(groups, {
+            environmentId: ref.environmentId,
+            projectId: shell.projectId,
+          }) !== projectKey
         ) {
           foreign = true;
           return [];
@@ -188,9 +208,12 @@ export function SplitViewFrame({
       if (foreign) {
         toastManager.add({
           type: "warning",
-          title: gt("Only sessions from {project} can open here", {
-            project: readProject(projectRef)?.title ?? gt("this project"),
-          }),
+          title:
+            groupName !== null
+              ? gt("Only sessions from the {group} group can open here", { group: groupName })
+              : gt("Only sessions from {project} can open here", {
+                  project: readProject(projectRef)?.title ?? gt("this project"),
+                }),
         });
       }
       for (const { ref, title } of candidates) {
@@ -379,6 +402,7 @@ export function SplitViewFrame({
         <SplitProjectBar
           environmentId={projectRef.environmentId}
           projectId={projectRef.projectId}
+          groupName={groupName}
           reserveTitlebarControls={reserveTitlebarControls}
         />
       ) : null}
@@ -409,6 +433,7 @@ export function SplitViewFrame({
           >
             <SplitChatPane
               threadRef={pane}
+              showProject={groupName !== null}
               onMakeMain={makeMain}
               onClose={closePane}
               onDropThreads={dropOnPane}

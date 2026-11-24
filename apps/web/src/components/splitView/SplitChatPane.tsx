@@ -1,4 +1,4 @@
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { T, useGT } from "gt-react";
 import { XIcon } from "lucide-react";
@@ -8,7 +8,7 @@ import { ComposerHandleContext } from "../../composerHandleContext";
 import { useDiffPanelStore } from "../../diffPanelStore";
 import type { SideChatParentPanel } from "../../lib/sideChatPane";
 import { useRightPanelStore } from "../../rightPanelStore";
-import { useQuietThreadShell } from "../../state/entities";
+import { useProject, useQuietThreadShell } from "../../state/entities";
 import { useEnvironmentShellHasSnapshot } from "../../state/shell";
 import ChatView from "../ChatView";
 import { BackgroundThreadContext } from "../chat/backgroundThread";
@@ -24,6 +24,8 @@ import { Button } from "../ui/button";
  */
 export const SplitChatPane = memo(function SplitChatPane(props: {
   readonly threadRef: ScopedThreadRef;
+  /** Names the session's project; set when the panes can come from several projects. */
+  readonly showProject: boolean;
   readonly onMakeMain: (threadRef: ScopedThreadRef, after?: { command?: string }) => void;
   readonly onClose: (threadRef: ScopedThreadRef) => void;
   readonly onDropThreads: (
@@ -39,6 +41,9 @@ export const SplitChatPane = memo(function SplitChatPane(props: {
     onDropThreads(threadRef, dropped),
   );
   const shell = useQuietThreadShell(threadRef);
+  const project = useProject(
+    props.showProject && shell ? scopeProjectRef(threadRef.environmentId, shell.projectId) : null,
+  );
   const snapshotLoaded = useEnvironmentShellHasSnapshot(threadRef.environmentId);
   const parentPanel: SideChatParentPanel = {
     openToolDiff: (target) => {
@@ -61,7 +66,10 @@ export const SplitChatPane = memo(function SplitChatPane(props: {
       {...threadContextDropTargetProps()}
     >
       <div className="flex h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 border-b border-border pr-2 pl-3 sm:pl-5">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{shell?.title}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          {project ? <span className="text-muted-foreground">{project.title} · </span> : null}
+          {shell?.title}
+        </span>
         <Button variant="ghost" size="xs" onClick={() => onMakeMain(threadRef)}>
           <T>Make main</T>
         </Button>
