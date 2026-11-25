@@ -45,7 +45,9 @@ export const SplitChatPane = memo(function SplitChatPane(props: {
     props.showProject && shell ? scopeProjectRef(threadRef.environmentId, shell.projectId) : null,
   );
   const snapshotLoaded = useEnvironmentShellHasSnapshot(threadRef.environmentId);
+  // A pane's commands run in its own terminal once it is main, so it hosts itself.
   const parentPanel: SideChatParentPanel = {
+    hostRef: threadRef,
     openToolDiff: (target) => {
       useDiffPanelStore.getState().selectToolCall(threadRef, target);
       useRightPanelStore.getState().open(threadRef, "diff");

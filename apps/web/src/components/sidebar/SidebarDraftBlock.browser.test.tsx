@@ -6,7 +6,31 @@ import { expect, it, vi } from "vite-plus/test";
 import { act, render } from "../../../test/render";
 import { formatAssistantCitationForComposer } from "../../composer-logic";
 import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
-import { SidebarDraftBlock } from "./SidebarDraftBlock";
+import { SidebarDraftBlock, useSidebarDrafts } from "./SidebarDraftBlock";
+
+const NO_TERMINAL_LABELS: ReadonlyMap<string, string> = new Map();
+
+function DraftBlock(props: {
+  routeDraftId?: string | null;
+  terminalLabels?: ReadonlyMap<string, string>;
+}) {
+  const routeDraftId = props.routeDraftId ?? null;
+  const terminalLabels = props.terminalLabels ?? NO_TERMINAL_LABELS;
+  const { draftIds, routeDraftComposer } = useSidebarDrafts(null, routeDraftId, terminalLabels);
+  return (
+    <SidebarDraftBlock
+      draftIds={draftIds}
+      routeDraftComposer={routeDraftComposer}
+      terminalLabels={terminalLabels}
+      jumpLabelByDraftId={null}
+      projectByKey={new Map()}
+      projectDisplayNameByKey={new Map()}
+      routeDraftId={routeDraftId}
+      onNavigateToDraft={vi.fn()}
+      onDraftContextMenu={vi.fn()}
+    />
+  );
+}
 
 it("keeps draft previews current through edits, promotion and removal", async () => {
   const initial = useComposerDraftStore.getState();
@@ -26,14 +50,7 @@ it("keeps draft previews current through edits, promotion and removal", async ()
   await using screen = await render(
     <Profiler id="draft-block" onRender={onRender}>
       <ul>
-        <SidebarDraftBlock
-          projectByKey={new Map()}
-          projectDisplayNameByKey={new Map()}
-          scopedProjectKeys={null}
-          routeDraftId={null}
-          onNavigateToDraft={vi.fn()}
-          onDraftContextMenu={vi.fn()}
-        />
+        <DraftBlock />
       </ul>
     </Profiler>,
   );
@@ -83,7 +100,7 @@ it("keeps draft previews current through edits, promotion and removal", async ()
   await expect.element(row).not.toBeInTheDocument();
 });
 
-it("shows the open draft as a new thread even when empty, and hides other empty drafts", async () => {
+it("lists empty drafts by terminal label while their terminal exists, and the open one as a new thread", async () => {
   const initial = useComposerDraftStore.getState();
   using _store = {
     [Symbol.dispose]: () => useComposerDraftStore.setState(initial, true),
@@ -93,39 +110,40 @@ it("shows the open draft as a new thread even when empty, and hides other empty 
     draftThreadsByThreadKey: {},
     logicalProjectDraftThreadKeyByLogicalProjectKey: {},
   });
-  const environmentId = EnvironmentId.make("empty-draft-environment");
-  const openDraftId = DraftId.make("open-empty-draft");
-  const otherDraftId = DraftId.make("other-empty-draft");
+  const environmentId = EnvironmentId.make("draft-terminal-environment");
+  const terminalDraftId = DraftId.make("draft-with-terminal");
   initial.setProjectDraftThreadId(
-    scopeProjectRef(environmentId, ProjectId.make("open-project")),
-    openDraftId,
-    { threadId: ThreadId.make("open-thread") },
+    scopeProjectRef(environmentId, ProjectId.make("terminal-project")),
+    terminalDraftId,
+    { threadId: ThreadId.make("terminal-thread") },
   );
   initial.setProjectDraftThreadId(
-    scopeProjectRef(environmentId, ProjectId.make("other-project")),
-    otherDraftId,
-    { threadId: ThreadId.make("other-thread") },
+    scopeProjectRef(environmentId, ProjectId.make("idle-project")),
+    DraftId.make("draft-without-terminal"),
+    { threadId: ThreadId.make("idle-thread") },
   );
+
+  const terminalLabels = new Map([[`${environmentId}:terminal-thread`, "dev"]]);
   const block = (routeDraftId: string | null) => (
     <ul>
-      <SidebarDraftBlock
-        projectByKey={new Map()}
-        projectDisplayNameByKey={new Map()}
-        scopedProjectKeys={null}
-        routeDraftId={routeDraftId}
-        onNavigateToDraft={vi.fn()}
-        onDraftContextMenu={vi.fn()}
-      />
+      <DraftBlock routeDraftId={routeDraftId} terminalLabels={terminalLabels} />
     </ul>
   );
-  await using screen = await render(block(null));
+  await using screen = await render(block(terminalDraftId));
   const rows = screen.getByTestId("sidebar-draft-row");
-  await expect.element(rows).not.toBeInTheDocument();
-
-  await screen.rerender(block(openDraftId));
-  await expect.element(rows).toHaveAccessibleName("New thread, Unsent draft");
-  expect(screen.container.querySelectorAll('[data-testid="sidebar-draft-row"]')).toHaveLength(1);
+  await expect.element(rows).toHaveAccessibleName("dev, Unsent draft");
+  expect(rows.elements()).toHaveLength(1);
 
   await screen.rerender(block(null));
-  await expect.element(rows).not.toBeInTheDocument();
+  await expect.element(rows).toHaveAccessibleName("dev, Unsent draft");
+  expect(rows.elements()).toHaveLength(1);
+
+  await screen.rerender(block(DraftId.make("draft-without-terminal")));
+  await expect
+    .element(screen.getByRole("button", { name: "New thread, Unsent draft" }))
+    .toBeVisible();
+  expect(rows.elements()).toHaveLength(2);
+
+  await screen.rerender(block(null));
+  await expect.element(rows).toHaveAccessibleName("dev, Unsent draft");
 });
