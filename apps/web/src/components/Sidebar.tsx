@@ -108,16 +108,15 @@ import { isMacPlatform } from "~/lib/utils";
 import { readLocalApi } from "../localApi";
 import { configuredHostedAppUrl } from "../hostedPairing";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
-import { SPLIT_MAX_PANES, splitPaneSetKey, visiblePanes } from "../splitView.logic";
-import { useProjectGroupStore } from "../projectGroupStore";
+import { SPLIT_MAX_PANES, canJoinPaneSet, visiblePanes } from "../splitView.logic";
+import { runSessionGroupAction, sessionGroupMenuState } from "../sessionGroupActions";
+import { useSessionGroupStore } from "../sessionGroupStore";
 import {
-  nestFoldersInGroups,
-  projectGroupExpansionKey,
-  projectGroupOfRefs,
-  projectMemberKey,
-  type ProjectGroup,
-} from "../projectGroups.logic";
-import { requestProjectGroupName } from "./ProjectGroupNameDialog";
+  groupThreadsBySessionGroup,
+  sessionGroupExpansionKey,
+  type SessionGroup,
+} from "../sessionGroups.logic";
+import { requestSessionGroupName } from "./SessionGroupNameDialog";
 import { useSplitViewStore } from "../splitViewStore";
 import { SidebarFolderDrop } from "./sidebar/SidebarFolderDrop";
 import {
@@ -188,6 +187,7 @@ import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import { ProjectRowActions } from "./ProjectComboboxRow";
 import {
   buildDraftActionMenuItems,
+  buildSessionGroupMenuItem,
   buildThreadActionMenuItems,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
@@ -285,9 +285,9 @@ import {
 import { SidebarDraftBlock } from "./sidebar/SidebarDraftBlock";
 import {
   SidebarProjectFolderHeader,
-  SidebarProjectGroupHeader,
-  sidebarProjectGroupRowId,
+  SidebarSessionGroupHeader,
   sidebarFolderRowId,
+  sidebarSessionGroupRowId,
 } from "./sidebar/SidebarProjectFolderHeader";
 import {
   SidebarDragBoundary,
@@ -346,8 +346,7 @@ const sidebarProviderEntriesAtom = Atom.make((get) => {
 
 const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, SidebarProviderEntry> = new Map();
 const EMPTY_THREADS: readonly EnvironmentThreadShell[] = [];
-const ADD_TO_GROUP_MENU_PREFIX = "add-to-group:";
-const ADD_REPO_MENU_PREFIX = "add-repo:";
+const NEW_SESSION_MENU_PREFIX = "new-session:";
 
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
@@ -448,8 +447,8 @@ function useSidebarThreads(input: {
   readonly folderGroups: readonly SidebarProjectSnapshot[] | null;
   // Keeps folders with no active threads, so a project the user filtered to or pinned can start one.
   readonly keepEmptyFolders: (group: SidebarProjectSnapshot) => boolean;
-  // The project group a folder sits in, which can close over it.
-  readonly projectGroupOfFolder: (group: SidebarProjectSnapshot) => ProjectGroup | null;
+  // Boring mode files these groups' active sessions under them, before the project folders.
+  readonly sessionGroups: readonly SessionGroup[];
 }) {
   const {
     projectScopeKey,
@@ -462,7 +461,7 @@ function useSidebarThreads(input: {
     routeRowThreadKey,
     folderGroups,
     keepEmptyFolders: keepEmpty,
-    projectGroupOfFolder,
+    sessionGroups,
   } = input;
   // Folders already separate the work, so boring mode has no Working shelf.
   const workingShelfEnabled =
@@ -548,38 +547,53 @@ function useSidebarThreads(input: {
   const visibleWorkingThreads = workingShelfExpanded
     ? workingThreads
     : routeThreadOnly(workingThreads, routeRowThreadKey);
-  const projectFolders =
+  const bySessionGroup =
     folderGroups === null
       ? null
-      : groupSidebarThreadsByProject(folderGroups, activeThreads, keepEmpty).map((folder) => {
-          const collapsed = !resolveProjectExpanded(
-            projectExpandedById,
-            sidebarFolderExpansionKeys(folder.group),
-          );
-          const projectGroup = projectGroupOfFolder(folder.group);
-          const groupCollapsed =
-            projectGroup !== null &&
-            !resolveProjectExpanded(projectExpandedById, [
-              projectGroupExpansionKey(projectGroup.id),
-            ]);
-          const hidden = collapsed || groupCollapsed;
-          return {
+      : groupThreadsBySessionGroup(sessionGroups, activeThreads, threadShellKey);
+  // A closed folder still shows the open thread, and hints at the rest.
+  const foldIfClosed = (collapsed: boolean, folderThreads: readonly EnvironmentThreadShell[]) => ({
+    collapsed,
+    threads: collapsed ? routeThreadOnly(folderThreads, routeRowThreadKey) : folderThreads,
+    hiddenThreads: collapsed
+      ? folderThreads.filter((thread) => threadShellKey(thread) !== routeRowThreadKey)
+      : EMPTY_THREADS,
+  });
+  const sessionGroupFolders =
+    bySessionGroup === null
+      ? null
+      : bySessionGroup.groups
+          // Filtered to a project, only groups with its sessions show.
+          .filter((folder) => scopedProjectKeys === null || folder.threads.length > 0)
+          .map((folder) => ({
             group: folder.group,
-            collapsed,
-            projectGroup,
-            groupCollapsed,
-            // A closed folder or group still shows the open thread, and hints at the rest.
-            threads: hidden ? routeThreadOnly(folder.threads, routeRowThreadKey) : folder.threads,
-            hiddenThreads: hidden
-              ? folder.threads.filter((thread) => threadShellKey(thread) !== routeRowThreadKey)
-              : EMPTY_THREADS,
-          };
-        });
+            ...foldIfClosed(
+              !resolveProjectExpanded(projectExpandedById, [
+                sessionGroupExpansionKey(folder.group.id),
+              ]),
+              folder.threads,
+            ),
+          }));
+  const projectFolders =
+    folderGroups === null || bySessionGroup === null
+      ? null
+      : groupSidebarThreadsByProject(folderGroups, bySessionGroup.ungrouped, keepEmpty).map(
+          (folder) => ({
+            group: folder.group,
+            ...foldIfClosed(
+              !resolveProjectExpanded(
+                projectExpandedById,
+                sidebarFolderExpansionKeys(folder.group),
+              ),
+              folder.threads,
+            ),
+          }),
+        );
   const orderedThreads = [
     ...pinnedThreads,
     ...(projectFolders === null
       ? activeThreads
-      : projectFolders.flatMap((folder) => folder.threads)),
+      : [...(sessionGroupFolders ?? []), ...projectFolders].flatMap((folder) => folder.threads)),
     ...visibleWorkingThreads,
     ...visibleSnoozedThreads,
     ...renderedSettledThreads,
@@ -625,8 +639,9 @@ function useSidebarThreads(input: {
       const keys = sidebarFolderExpansionKeys(group);
       setProjectExpanded(keys, !resolveProjectExpanded(projectExpandedById, keys));
     },
-    toggleProjectGroup: (group: ProjectGroup) => {
-      const key = projectGroupExpansionKey(group.id);
+    sessionGroupFolders,
+    toggleSessionGroup: (group: SessionGroup) => {
+      const key = sessionGroupExpansionKey(group.id);
       setProjectExpanded(key, !resolveProjectExpanded(projectExpandedById, [key]));
     },
     renderedSettledThreads,
@@ -1300,43 +1315,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     ) => {
       const api = readLocalApi();
       if (!api) return;
-      const { groups: savedGroups } = useProjectGroupStore.getState();
-      const projectGroup = group.archived
-        ? null
-        : projectGroupOfRefs(savedGroups, group.memberProjectRefs);
-      const memberKeys = group.memberProjectRefs.map(projectMemberKey);
       void (async () => {
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             [
               { id: "new-thread", label: gt("New thread") },
               { id: "copy-path", label: gt("Copy path") },
-              ...(group.archived
-                ? []
-                : projectGroup
-                  ? [
-                      {
-                        id: "remove-from-group",
-                        label: gt("Remove from {group}", { group: projectGroup.name }),
-                      },
-                    ]
-                  : [
-                      {
-                        id: "add-to-group",
-                        label: gt("Add to group"),
-                        children: [
-                          ...savedGroups.map((candidate) => ({
-                            id: `${ADD_TO_GROUP_MENU_PREFIX}${candidate.id}`,
-                            label: candidate.name,
-                          })),
-                          {
-                            id: "new-group",
-                            label: gt("New group…"),
-                            separatorBefore: savedGroups.length > 0,
-                          },
-                        ],
-                      },
-                    ]),
               ...(canPinProject(group)
                 ? [
                     group.pinned
@@ -1365,82 +1349,95 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           case "project-settings":
             openProjectSettings(group);
             return;
-          case "remove-from-group":
-            useProjectGroupStore.getState().removeProjects(memberKeys);
-            return;
-          case "new-group": {
-            const name = await requestProjectGroupName({ mode: "create" });
-            if (name !== null) useProjectGroupStore.getState().createGroup(name, memberKeys);
-            return;
-          }
-        }
-        if (clicked.value?.startsWith(ADD_TO_GROUP_MENU_PREFIX)) {
-          useProjectGroupStore
-            .getState()
-            .addProjects(clicked.value.slice(ADD_TO_GROUP_MENU_PREFIX.length), memberKeys);
         }
       })();
     },
   );
-  const handleProjectGroupContextMenu = useStableCallback(
-    (projectGroup: ProjectGroup, position: { x: number; y: number }, source: ContextMenuSource) => {
+
+  // Starts the thread in the chosen project and files it in the group straight away.
+  const startThreadInSessionGroup = useStableCallback(
+    async (sessionGroup: SessionGroup, project: SidebarProjectSnapshot) => {
+      if (isMobile) setOpenMobile(false);
+      const projectRef = scopeProjectRef(project.environmentId, project.id);
+      const opened = await handleNewThread(projectRef);
+      if (opened === null) return;
+      useSessionGroupStore
+        .getState()
+        .addThreads(sessionGroup.id, [
+          scopedThreadKey(scopeThreadRef(project.environmentId, opened.threadId)),
+        ]);
+    },
+  );
+  const sessionGroupProjectItems = () =>
+    scopeGroups
+      .filter((project) => !project.archived)
+      .map((project) => ({
+        id: `${NEW_SESSION_MENU_PREFIX}${project.projectKey}`,
+        label: project.displayName,
+      }));
+  const startFromSessionGroupMenu = (sessionGroup: SessionGroup, clicked: string) => {
+    if (!clicked.startsWith(NEW_SESSION_MENU_PREFIX)) return false;
+    const projectKey = clicked.slice(NEW_SESSION_MENU_PREFIX.length);
+    const project = scopeGroups.find((candidate) => candidate.projectKey === projectKey);
+    if (project) void startThreadInSessionGroup(sessionGroup, project);
+    return true;
+  };
+  const handleSessionGroupNewSession = useStableCallback(
+    (sessionGroup: SessionGroup, position: { x: number; y: number }, source: ContextMenuSource) => {
       const api = readLocalApi();
       if (!api) return;
-      const { groups: savedGroups } = useProjectGroupStore.getState();
-      // Any project not already in a group, including idle ones the sidebar hides.
-      const addable = scopeGroups.filter(
-        (folder) => projectGroupOfRefs(savedGroups, folder.memberProjectRefs) === null,
-      );
+      void (async () => {
+        const clicked = await settlePromise(() =>
+          api.contextMenu.show(sessionGroupProjectItems(), position, source),
+        );
+        if (clicked._tag === "Failure" || clicked.value === null) return;
+        startFromSessionGroupMenu(sessionGroup, clicked.value);
+      })();
+    },
+  );
+  const handleSessionGroupContextMenu = useStableCallback(
+    (sessionGroup: SessionGroup, position: { x: number; y: number }, source: ContextMenuSource) => {
+      const api = readLocalApi();
+      if (!api) return;
+      const projectItems = sessionGroupProjectItems();
       void (async () => {
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             [
               {
-                id: "add-repo",
-                label: gt("Add repo"),
-                disabled: addable.length === 0,
-                children: addable.map((folder) => ({
-                  id: `${ADD_REPO_MENU_PREFIX}${folder.projectKey}`,
-                  label: folder.displayName,
-                })),
+                id: "new-session",
+                label: gt("New thread in…"),
+                icon: "message-square-plus",
+                disabled: projectItems.length === 0,
+                children: projectItems,
               },
-              { id: "rename-group", label: gt("Rename group…") },
-              { id: "ungroup", label: gt("Ungroup") },
+              { id: "rename-group", label: gt("Rename group…"), icon: "pencil" },
+              { id: "ungroup", label: gt("Ungroup"), separatorBefore: true },
             ],
             position,
             source,
           ),
         );
         if (clicked._tag === "Failure" || clicked.value === null) return;
-        const store = useProjectGroupStore.getState();
+        if (startFromSessionGroupMenu(sessionGroup, clicked.value)) return;
         switch (clicked.value) {
           case "rename-group": {
-            const name = await requestProjectGroupName({
+            const name = await requestSessionGroupName({
               mode: "rename",
-              initialName: projectGroup.name,
+              initialName: sessionGroup.name,
             });
-            if (name !== null) store.renameGroup(projectGroup.id, name);
+            if (name !== null) useSessionGroupStore.getState().renameGroup(sessionGroup.id, name);
             return;
           }
           case "ungroup":
-            store.ungroup(projectGroup.id);
+            useSessionGroupStore.getState().ungroup(sessionGroup.id);
             return;
-        }
-        if (clicked.value.startsWith(ADD_REPO_MENU_PREFIX)) {
-          const projectKey = clicked.value.slice(ADD_REPO_MENU_PREFIX.length);
-          const folder = addable.find((candidate) => candidate.projectKey === projectKey);
-          if (folder) {
-            store.addProjects(projectGroup.id, folder.memberProjectRefs.map(projectMemberKey));
-          }
         }
       })();
     },
   );
 
-  const savedProjectGroups = useProjectGroupStore((state) => state.groups);
-  // Archived projects keep their own folders below the rest, outside groups.
-  const projectGroupOfFolder = (folder: SidebarProjectSnapshot) =>
-    folder.archived ? null : projectGroupOfRefs(savedProjectGroups, folder.memberProjectRefs);
+  const sessionGroups = useSessionGroupStore((state) => state.groups);
   const {
     workingShelfEnabled,
     pinnedThreads,
@@ -1465,7 +1462,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     toggleWorkingShelf,
     projectFolders,
     toggleProjectFolder,
-    toggleProjectGroup,
+    sessionGroupFolders,
+    toggleSessionGroup,
     renderedSettledThreads,
     visibleSnoozedThreads,
     visibleWorkingThreads,
@@ -1493,12 +1491,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           [...scopeGroups, ...projectGroups.filter((project) => project.archived)]
         : scopedProjectGroups
       : null,
-    // A grouped project keeps its folder so every repo in the group can start a thread.
     keepEmptyFolders: (group) =>
-      scopedProjectGroups.length > 0 ||
-      (group.pinned && !group.archived) ||
-      projectGroupOfFolder(group) !== null,
-    projectGroupOfFolder,
+      scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
+    sessionGroups,
   });
 
   // Ranked across environments as the palette ranks them, so one
@@ -2083,7 +2078,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         event.activatorEvent instanceof PointerEvent ? event.activatorEvent.clientY : null,
     });
   };
-  const hasProjectFolders = projectFolders !== null && projectFolders.length > 0;
+  const hasProjectFolders = (projectFolders?.length ?? 0) + (sessionGroupFolders?.length ?? 0) > 0;
   const sidebarListItemsFresh = ((): readonly SidebarListItem[] => {
     const rowsOf = (
       list: readonly EnvironmentThreadShell[],
@@ -2152,10 +2147,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const listMotionLayoutKey = [
     sidebarListItemsKey,
     projectFolders
-      ?.map(
-        (folder) =>
-          `${folder.group.projectKey}:${folder.threads.length}:${folder.projectGroup?.id ?? ""}:${folder.groupCollapsed}`,
-      )
+      ?.map((folder) => `${folder.group.projectKey}:${folder.threads.length}`)
+      .join("\n") ?? "",
+    sessionGroupFolders
+      ?.map((folder) => `${folder.group.id}:${folder.threads.length}`)
       .join("\n") ?? "",
     visibleDraftSessionCount,
     routeDraftIdForRows ?? "",
@@ -2531,6 +2526,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 ]
               : []),
             { id: "mark-unread", label: gt("Mark unread ({count})", { count }) },
+            ...(boringSidebarEnabled
+              ? [buildSessionGroupMenuItem(sessionGroupMenuState(threadKeys))]
+              : []),
             {
               id: "delete",
               label: gt("Delete ({count})", { count }),
@@ -2543,6 +2541,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         ),
       );
       if (clicked._tag === "Failure" || clicked.value === null) return;
+      if (await runSessionGroupAction(clicked.value, threadKeys)) {
+        clearSelection();
+        return;
+      }
       const actionTargets =
         clicked.value === "unpin"
           ? pinnedSelectedThreads
@@ -2800,16 +2802,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ),
           ) ?? null;
         const splitState = useSplitViewStore.getState();
-        const splitKey = splitPaneSetKey(useProjectGroupStore.getState().groups, {
-          environmentId: thread.environmentId,
-          projectId: thread.projectId,
-        });
+        const splitKey = splitState.screen.projectKey;
         const splitMain = splitState.screen.mainThreadKey
           ? parseScopedThreadKey(splitState.screen.mainThreadKey)
           : null;
-        const splitPanes = visiblePanes(splitState.panesByProject[splitKey] ?? [], splitMain);
+        const splitPanes =
+          splitKey === null
+            ? []
+            : visiblePanes(splitState.panesByProject[splitKey] ?? [], splitMain);
         const splitView =
-          splitState.screen.projectKey === splitKey &&
+          splitKey !== null &&
+          canJoinPaneSet(useSessionGroupStore.getState().groups, splitKey, threadKey, {
+            environmentId: thread.environmentId,
+            projectId: thread.projectId,
+          }) &&
           splitState.screen.mainThreadKey !== null &&
           threadKey !== splitState.screen.mainThreadKey &&
           thread.lineage.sideChat !== true &&
@@ -2826,6 +2832,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 AuthOrchestrationOperateScope,
               ),
               ...(splitView ? { splitView } : {}),
+              ...(boringSidebarEnabled
+                ? { sessionGroups: sessionGroupMenuState([threadKey]) }
+                : {}),
               branch: thread.branch ?? null,
               // An archived project is not a filter choice.
               projectFilter:
@@ -2861,6 +2870,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           ),
         );
         if (clicked._tag === "Failure" || clicked.value === null) return;
+        if (await runSessionGroupAction(clicked.value, [threadKey])) return;
         if (threadActionRequiresOperate(clicked.value) && !checkThreadOperations([thread])) return;
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
@@ -2877,7 +2887,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         }
         switch (clicked.value) {
           case "open-in-split-view":
-            splitState.openPane(splitKey, threadRef, splitMain);
+            if (splitKey !== null) splitState.openPane(splitKey, threadRef, splitMain);
             return;
           case "filter-by-project":
             if (threadProjectGroup) {
@@ -3577,9 +3587,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       const renderThreadRow = (
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
-                        // The tree row of the project folder this row sits in.
+                        // The tree row of the project folder or session group this row sits in.
                         folderRow?: string,
-                        nested = false,
+                        inSessionGroup = false,
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -3605,7 +3615,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             }
                             thread={thread}
                             variant={rowVariant}
-                            nested={nested}
+                            showProjectIcon={inSessionGroup}
                             navigationParent={
                               folderRow ??
                               (section === "working" ||
@@ -3717,17 +3727,30 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           continue;
                         }
                         if (projectFolders !== null && item.marker === "active-placeholder") {
-                          const pushFolder = (
-                            folder: (typeof projectFolders)[number],
-                            groupRow?: string,
-                          ) => {
+                          for (const folder of sessionGroupFolders ?? []) {
+                            const groupRow = sidebarSessionGroupRowId(folder.group.id);
+                            items.push(
+                              <SidebarSessionGroupHeader
+                                key={groupRow}
+                                group={folder.group}
+                                collapsed={folder.collapsed}
+                                hiddenThreads={folder.hiddenThreads}
+                                onToggle={toggleSessionGroup}
+                                onNewSession={handleSessionGroupNewSession}
+                                onContextMenu={handleSessionGroupContextMenu}
+                              />,
+                            );
+                            for (const thread of folder.threads) {
+                              items.push(renderThreadRow(thread, "active", groupRow, true));
+                            }
+                          }
+                          for (const folder of projectFolders) {
                             items.push(
                               <SidebarProjectFolderHeader
                                 key={`project-folder:${folder.group.projectKey}`}
                                 group={folder.group}
                                 collapsed={folder.collapsed}
                                 hiddenThreads={folder.hiddenThreads}
-                                parentRow={groupRow}
                                 onToggle={toggleProjectFolder}
                                 onNewThread={startThreadInProjectFolder}
                                 onContextMenu={handleProjectFolderContextMenu}
@@ -3739,46 +3762,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   thread,
                                   "active",
                                   sidebarFolderRowId(folder.group.projectKey),
-                                  groupRow !== undefined,
                                 ),
                               );
-                            }
-                          };
-                          for (const entry of nestFoldersInGroups(
-                            projectFolders,
-                            (folder) => folder.projectGroup,
-                          )) {
-                            if (entry.kind === "folder") {
-                              pushFolder(entry.folder);
-                              continue;
-                            }
-                            const groupRow = sidebarProjectGroupRowId(entry.group.id);
-                            const groupCollapsed = entry.folders.some(
-                              (folder) => folder.groupCollapsed,
-                            );
-                            items.push(
-                              <SidebarProjectGroupHeader
-                                key={groupRow}
-                                group={entry.group}
-                                collapsed={groupCollapsed}
-                                hiddenThreads={
-                                  groupCollapsed
-                                    ? entry.folders.flatMap((folder) => folder.hiddenThreads)
-                                    : EMPTY_THREADS
-                                }
-                                onToggle={toggleProjectGroup}
-                                onContextMenu={handleProjectGroupContextMenu}
-                              />,
-                            );
-                            for (const folder of entry.folders) {
-                              if (!groupCollapsed) {
-                                pushFolder(folder, groupRow);
-                                continue;
-                              }
-                              // A closed group still shows the open thread.
-                              for (const thread of folder.threads) {
-                                items.push(renderThreadRow(thread, "active", groupRow));
-                              }
                             }
                           }
                           continue;

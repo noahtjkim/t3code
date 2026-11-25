@@ -26,12 +26,13 @@ import {
   resolveSplitLayout,
   SPLIT_MAX_PANES,
   type SplitDropTarget,
-  splitPaneSetKey,
+  canJoinPaneSet,
+  groupPaneSetKey,
   splitProjectKey,
   visiblePanes,
 } from "../../splitView.logic";
-import { projectGroupOf } from "../../projectGroups.logic";
-import { useProjectGroupStore } from "../../projectGroupStore";
+import { sessionGroupOf } from "../../sessionGroups.logic";
+import { useSessionGroupStore } from "../../sessionGroupStore";
 import { useSplitViewStore } from "../../splitViewStore";
 import { readProject, readThreadShell } from "../../state/entities";
 import { buildThreadRouteParams } from "../../threadRoutes";
@@ -83,22 +84,27 @@ export function SplitViewFrame({
 }) {
   const gt = useGT();
   const navigate = useNavigate();
-  const groups = useProjectGroupStore((state) => state.groups);
-  // Sessions of every project in the main session's group share this pane set.
-  const projectKey = projectRef ? splitPaneSetKey(groups, projectRef) : null;
-  const groupName = projectRef
-    ? (projectGroupOf(groups, splitProjectKey(projectRef))?.name ?? null)
-    : null;
+  const groups = useSessionGroupStore((state) => state.groups);
+  const mainKey = mainThreadRef ? scopedThreadKey(mainThreadRef) : null;
+  // A grouped main session shares its group's panes; any other shares its project's.
+  const mainGroup = mainKey === null ? null : sessionGroupOf(groups, mainKey);
+  const projectKey =
+    projectRef === null
+      ? null
+      : mainGroup
+        ? groupPaneSetKey(mainGroup.id)
+        : splitProjectKey(projectRef);
+  const joins = (ref: ScopedThreadRef, projectId: ProjectId) =>
+    projectKey !== null &&
+    canJoinPaneSet(groups, projectKey, scopedThreadKey(ref), {
+      environmentId: ref.environmentId,
+      projectId,
+    });
   const inPaneSet = (ref: ScopedThreadRef) => {
     const shell = readThreadShell(ref);
     // An unloaded shell stays listed; its pane shows the session as unavailable.
-    return (
-      shell === null ||
-      splitPaneSetKey(groups, { environmentId: ref.environmentId, projectId: shell.projectId }) ===
-        projectKey
-    );
+    return shell === null || joins(ref, shell.projectId);
   };
-  const mainKey = mainThreadRef ? scopedThreadKey(mainThreadRef) : null;
   const storedPanes = useSplitViewStore((state) =>
     projectKey === null ? undefined : state.panesByProject[projectKey],
   );
@@ -190,13 +196,7 @@ export function SplitViewFrame({
       let foreign = false;
       const candidates = dropped.flatMap((ref) => {
         const shell = readThreadShell(ref);
-        if (
-          shell === null ||
-          splitPaneSetKey(groups, {
-            environmentId: ref.environmentId,
-            projectId: shell.projectId,
-          }) !== projectKey
-        ) {
+        if (shell === null || !joins(ref, shell.projectId)) {
           foreign = true;
           return [];
         }
@@ -209,8 +209,8 @@ export function SplitViewFrame({
         toastManager.add({
           type: "warning",
           title:
-            groupName !== null
-              ? gt("Only sessions from the {group} group can open here", { group: groupName })
+            mainGroup !== null
+              ? gt("Only sessions from the {group} group can open here", { group: mainGroup.name })
               : gt("Only sessions from {project} can open here", {
                   project: readProject(projectRef)?.title ?? gt("this project"),
                 }),
@@ -402,7 +402,7 @@ export function SplitViewFrame({
         <SplitProjectBar
           environmentId={projectRef.environmentId}
           projectId={projectRef.projectId}
-          groupName={groupName}
+          groupName={mainGroup?.name ?? null}
           reserveTitlebarControls={reserveTitlebarControls}
         />
       ) : null}
@@ -433,7 +433,7 @@ export function SplitViewFrame({
           >
             <SplitChatPane
               threadRef={pane}
-              showProject={groupName !== null}
+              showProject={mainGroup !== null}
               onMakeMain={makeMain}
               onClose={closePane}
               onDropThreads={dropOnPane}

@@ -107,4 +107,28 @@ describe("buildThreadActionMenuItems", () => {
       )?.disabled,
     ).toBeFalsy();
   });
+
+  it("offers adding to a group, or removing from the current one, even read-only", () => {
+    const groups = [{ id: "g1", name: "Acme" }];
+    const groupItem = (current: { id: string; name: string } | null) =>
+      buildThreadActionMenuItems({
+        ...baseState,
+        canOperate: false,
+        sessionGroups: { groups, current },
+      }).find((item) => item.id.startsWith("session-group"));
+    expect(groupItem(null)).toMatchObject({
+      id: "session-group",
+      label: "Add to group",
+      children: [
+        { id: "session-group:add:g1", label: "Acme" },
+        { id: "session-group:new", label: "New group…", separatorBefore: true },
+      ],
+    });
+    expect(groupItem(null)?.disabled).toBeFalsy();
+    expect(groupItem(groups[0]!)).toMatchObject({
+      id: "session-group:remove",
+      label: "Remove from Acme",
+    });
+    expect(groupItem(groups[0]!)?.disabled).toBeFalsy();
+  });
 });

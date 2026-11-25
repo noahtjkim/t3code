@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   addPane,
+  canJoinPaneSet,
   equalFractions,
   gridPlacement,
   removePane,
@@ -11,7 +12,6 @@ import {
   resizeFractions,
   resolveSplitDrop,
   resolveSplitLayout,
-  splitPaneSetKey,
   splitProjectKey,
   swapWithMain,
   visiblePanes,
@@ -32,16 +32,17 @@ describe("splitProjectKey", () => {
   });
 });
 
-describe("splitPaneSetKey", () => {
-  it("keys a grouped project by its group and an ungrouped one by itself", () => {
-    const groups = [{ id: "g1", name: "Acme", memberKeys: ["env-1:p"] }];
-    const env = "env-1" as EnvironmentId;
-    expect(splitPaneSetKey(groups, { environmentId: env, projectId: ProjectId.make("p") })).toBe(
-      "group:g1",
-    );
-    expect(splitPaneSetKey(groups, { environmentId: env, projectId: ProjectId.make("q") })).toBe(
-      "env-1:q",
-    );
+describe("canJoinPaneSet", () => {
+  const groups = [{ id: "g1", name: "Acme", threadKeys: ["env-1:a"] }];
+  const env = "env-1" as EnvironmentId;
+  const p = { environmentId: env, projectId: ProjectId.make("p") };
+  const q = { environmentId: env, projectId: ProjectId.make("q") };
+
+  it("lets a group take only its sessions, and a project any of its own", () => {
+    expect(canJoinPaneSet(groups, "group:g1", "env-1:a", q)).toBe(true);
+    expect(canJoinPaneSet(groups, "group:g1", "env-1:b", p)).toBe(false);
+    expect(canJoinPaneSet(groups, "env-1:p", "env-1:a", p)).toBe(true);
+    expect(canJoinPaneSet(groups, "env-1:p", "env-1:b", q)).toBe(false);
   });
 });
 

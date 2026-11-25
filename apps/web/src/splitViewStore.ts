@@ -51,8 +51,6 @@ interface SplitViewState {
     main: ScopedThreadRef | null,
   ) => "replaced" | "duplicate" | "missing";
   closePane: (projectKey: string, ref: ScopedThreadRef) => void;
-  /** Appends one pane set's panes to another, up to the pane limit, and clears the first. */
-  adoptPaneSet: (fromKey: string, toKey: string) => void;
   dropPaneSet: (key: string) => void;
   makeMain: (projectKey: string, pane: ScopedThreadRef, main: ScopedThreadRef | null) => void;
   setMode: (mode: SplitLayoutMode) => void;
@@ -127,22 +125,6 @@ export const useSplitViewStore = create<SplitViewState>()(
             removePane(state.panesByProject[projectKey] ?? [], ref),
           ),
         })),
-      adoptPaneSet: (fromKey, toKey) =>
-        set((state) => {
-          const from = state.panesByProject[fromKey];
-          if (from === undefined || fromKey === toKey) return {};
-          const merged = from.reduce<ScopedThreadRef[]>(
-            (acc, ref) => addPane(acc, ref, null).panes,
-            state.panesByProject[toKey] ?? [],
-          );
-          return {
-            panesByProject: withProjectPanes(
-              withProjectPanes(state.panesByProject, fromKey, []),
-              toKey,
-              merged,
-            ),
-          };
-        }),
       dropPaneSet: (key) =>
         set((state) => ({ panesByProject: withProjectPanes(state.panesByProject, key, []) })),
       makeMain: (projectKey, pane, main) =>

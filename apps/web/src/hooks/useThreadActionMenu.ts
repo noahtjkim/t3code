@@ -1,5 +1,5 @@
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
 import { openGuestShareDialog } from "../components/chat/guestShareDialogState";
 import {
@@ -39,6 +39,7 @@ import {
 } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { readLocalApi } from "../localApi";
+import { runSessionGroupAction, sessionGroupMenuState } from "../sessionGroupActions";
 import { configuredHostedAppUrl } from "../hostedPairing";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -99,6 +100,8 @@ export function useThreadActionMenu(input: {
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
+  // Groups show only in the boring sidebar, so only it offers them.
+  const boringSidebarEnabled = useClientSettings((s) => s.boringSidebarEnabled);
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onError: (error) => failureToast(m(msg("Failed to copy path")), error),
   });
@@ -154,10 +157,14 @@ export function useThreadActionMenu(input: {
         snoozePresets,
         canShareWithGuest,
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+        ...(boringSidebarEnabled
+          ? { sessionGroups: sessionGroupMenuState([scopedThreadKey(threadRef)]) }
+          : {}),
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
       if (clicked._tag === "Failure" || clicked.value === null) return;
       const action: ThreadActionMenuId = clicked.value;
+      if (await runSessionGroupAction(action, [scopedThreadKey(threadRef)])) return;
       if (
         threadActionRequiresOperate(action) &&
         !readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope)

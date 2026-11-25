@@ -577,9 +577,9 @@ type SidebarThreadRowProps = {
   // "folder" is a one-line row inside a boring sidebar project folder;
   // "folder-multiline" adds the card's branch and PR line under it.
   variant: "card" | "slim" | "folder" | "folder-multiline";
+  // Folder rows in a session group mix projects, so they show which one they belong to.
+  showProjectIcon?: boolean | undefined;
   navigationParent?: string | undefined;
-  /** Inside a folder that sits in a project group, one level deeper. */
-  nested?: boolean | undefined;
   variantAction: SidebarSweepAction;
   settlementSupported: boolean;
   snoozeSupported: boolean;
@@ -1337,7 +1337,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_--spacing(9)]",
           metaLine !== null && multiline && "[contain-intrinsic-size:auto_--spacing(13.5)]",
           sortable?.isDragging && "relative z-20",
-          props.nested && "ps-3",
         )}
       >
         <Tooltip disabled={isRenaming || sortable?.isDragging}>
@@ -1370,7 +1369,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           >
             {/* `contents` keeps one-line rows a single flex row. */}
             <div className={multiline ? "flex h-6 min-w-0 items-center gap-2.5" : "contents"}>
-              {inFolder ? null : (
+              {inFolder && !props.showProjectIcon ? null : (
                 <span
                   className={cn(
                     "flex shrink-0 items-center transition-opacity",

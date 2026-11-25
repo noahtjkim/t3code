@@ -7,6 +7,10 @@ import { m, type MessageResolver } from "../i18n/messages";
 export type ThreadActionMenuId =
   | "find"
   | "open-in-split-view"
+  | "session-group"
+  | "session-group:new"
+  | `session-group:add:${string}`
+  | "session-group:remove"
   | "new-thread-on-branch"
   | "filter-by-project"
   | "turn-into-project"
@@ -126,10 +130,18 @@ export interface ThreadActionMenuState {
   readonly canTurnIntoProject?: boolean;
   /** Absent where the thread cannot join the split view on screen. */
   readonly splitView?: "available" | "full";
+  /** Absent where sessions cannot be grouped. */
+  readonly sessionGroups?: {
+    readonly groups: ReadonlyArray<{ readonly id: string; readonly name: string }>;
+    /** The group holding every selected session, or null when they are in none. */
+    readonly current: { readonly id: string; readonly name: string } | null;
+  };
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
+  // Session groups are stored on this client, not the server.
+  if (action.startsWith("session-group")) return false;
   return ![
     "find",
     "open-in-split-view",
@@ -143,6 +155,36 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "copy-thread",
     "copy-thread-id",
   ].includes(action);
+}
+
+export function buildSessionGroupMenuItem(
+  sessionGroups: NonNullable<ThreadActionMenuState["sessionGroups"]>,
+  resolve: MessageResolver = m,
+): ContextMenuItem<ThreadActionMenuId> {
+  const { groups, current } = sessionGroups;
+  if (current) {
+    return {
+      id: "session-group:remove",
+      label: resolve(msg("Remove from {group}", { group: current.name })),
+      icon: "folder",
+    };
+  }
+  return {
+    id: "session-group",
+    label: resolve(msg("Add to group")),
+    icon: "folder-plus",
+    children: [
+      ...groups.map((group) => ({
+        id: `session-group:add:${group.id}` as const,
+        label: group.name,
+      })),
+      {
+        id: "session-group:new" as const,
+        label: resolve(msg("New group…")),
+        separatorBefore: groups.length > 0,
+      },
+    ],
+  };
 }
 
 export function buildThreadActionMenuItems(
@@ -166,6 +208,7 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
+    ...(state.sessionGroups ? [buildSessionGroupMenuItem(state.sessionGroups, resolve)] : []),
     ...(state.branch
       ? [
           {

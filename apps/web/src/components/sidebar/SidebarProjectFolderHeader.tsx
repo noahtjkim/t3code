@@ -7,7 +7,7 @@ import { memo } from "react";
 
 import { cn } from "~/lib/utils";
 import { contextMenuSourceOf } from "../../contextMenuSource";
-import type { ProjectGroup } from "../../projectGroups.logic";
+import type { SessionGroup } from "../../sessionGroups.logic";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { useUiStateStore } from "../../uiStateStore";
 import { resolveSidebarFolderDot, resolveThreadLastVisitedAt } from "../Sidebar.logic";
@@ -34,9 +34,9 @@ export function sidebarFolderRowId(projectKey: string) {
   return `folder:${projectKey}`;
 }
 
-/** The project group's sidebar tree row; its folders name it as their parent. */
-export function sidebarProjectGroupRowId(groupId: string) {
-  return `project-group:${groupId}`;
+/** The session group's sidebar tree row; its sessions name it as their parent. */
+export function sidebarSessionGroupRowId(groupId: string) {
+  return `session-group:${groupId}`;
 }
 
 /** A closed folder or group's status, from the threads it hides. */
@@ -66,8 +66,6 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
   group: SidebarProjectSnapshot;
   collapsed: boolean;
   hiddenThreads: readonly EnvironmentThreadShell[];
-  /** Set when the folder sits inside a project group: that group's row. */
-  parentRow?: string | undefined;
   onToggle: (group: SidebarProjectSnapshot) => void;
   onNewThread: (group: SidebarProjectSnapshot) => void;
   onContextMenu: (
@@ -84,15 +82,11 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
   return (
     <li
       data-testid="sidebar-project-folder"
-      className={cn(
-        "group/project-folder relative list-none first:mt-0",
-        props.parentRow === undefined ? "mt-2" : "mt-0.5 ps-3",
-      )}
+      className="group/project-folder relative mt-2 list-none first:mt-0"
     >
       <button
         type="button"
         data-sidebar-row={rowId}
-        data-sidebar-parent={props.parentRow}
         aria-expanded={!collapsed}
         onClick={() => props.onToggle(group)}
         onContextMenu={(event) => {
@@ -155,28 +149,38 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
 });
 
 /**
- * A project group in the boring sidebar: a shelf header over its project folders. It has no
- * new-thread button, since a group spans several projects; its folders keep theirs.
+ * A session group in the boring sidebar: a folder over sessions from any project. Its
+ * new-thread button asks which project, since a group spans several.
  */
-export const SidebarProjectGroupHeader = memo(function SidebarProjectGroupHeader(props: {
-  group: ProjectGroup;
+export const SidebarSessionGroupHeader = memo(function SidebarSessionGroupHeader(props: {
+  group: SessionGroup;
   collapsed: boolean;
   hiddenThreads: readonly EnvironmentThreadShell[];
-  onToggle: (group: ProjectGroup) => void;
+  onToggle: (group: SessionGroup) => void;
+  onNewSession: (
+    group: SessionGroup,
+    position: { x: number; y: number },
+    source: ContextMenuSource,
+  ) => void;
   onContextMenu: (
-    group: ProjectGroup,
+    group: SessionGroup,
     position: { x: number; y: number },
     source: ContextMenuSource,
   ) => void;
 }) {
+  const gt = useGT();
   const m = useMessages();
   const { group, collapsed, hiddenThreads } = props;
+  const rowId = sidebarSessionGroupRowId(group.id);
   const dot = useHiddenThreadsDot(collapsed, hiddenThreads);
   return (
-    <li data-testid="sidebar-project-group" className="relative mt-2 list-none first:mt-0">
+    <li
+      data-testid="sidebar-session-group"
+      className="group/project-folder relative mt-2 list-none first:mt-0"
+    >
       <button
         type="button"
-        data-sidebar-row={sidebarProjectGroupRowId(group.id)}
+        data-sidebar-row={rowId}
         aria-expanded={!collapsed}
         onClick={() => props.onToggle(group)}
         onContextMenu={(event) => {
@@ -190,7 +194,7 @@ export const SidebarProjectGroupHeader = memo(function SidebarProjectGroupHeader
         className="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-(--control-radius) px-(--sidebar-row-content-inset) text-left outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <FolderIcon aria-hidden className="size-4 shrink-0 text-sidebar-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-sidebar-foreground">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground/90">
           {group.name}
         </span>
         {dot ? (
@@ -199,7 +203,7 @@ export const SidebarProjectGroupHeader = memo(function SidebarProjectGroupHeader
           </span>
         ) : null}
         {collapsed && hiddenThreads.length > 0 ? (
-          <span className="shrink-0 text-xs tabular-nums text-sidebar-muted-foreground">
+          <span className="shrink-0 text-xs tabular-nums text-sidebar-muted-foreground group-hover/project-folder:invisible group-has-[[data-sidebar-action-for]:focus]/project-folder:invisible pointer-coarse:invisible">
             {hiddenThreads.length}
           </span>
         ) : null}
@@ -211,6 +215,35 @@ export const SidebarProjectGroupHeader = memo(function SidebarProjectGroupHeader
           )}
         />
       </button>
+      <span className="absolute inset-y-0 right-6 flex items-center opacity-0 focus-within:opacity-100 group-hover/project-folder:opacity-100 pointer-coarse:opacity-100">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                data-sidebar-action-for={rowId}
+                size="icon-xs"
+                variant="ghost-muted"
+                aria-label={gt("New thread in {group}", { group: group.name })}
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  props.onNewSession(
+                    group,
+                    { x: rect.left, y: rect.bottom },
+                    contextMenuSourceOf(event),
+                  );
+                }}
+              />
+            }
+          >
+            <SquarePenIcon aria-hidden />
+          </TooltipTrigger>
+          <TooltipPopup>
+            <T>
+              New thread in <Var>{group.name}</Var>
+            </T>
+          </TooltipPopup>
+        </Tooltip>
+      </span>
     </li>
   );
 });

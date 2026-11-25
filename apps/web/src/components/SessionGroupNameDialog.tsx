@@ -21,8 +21,8 @@ type Request = {
 };
 const useRequest = create<{ request: Request | null }>(() => ({ request: null }));
 
-/** Asks for a project group's name; resolves null when dismissed. */
-export function requestProjectGroupName(input: {
+/** Asks for a session group's name; resolves null when dismissed. */
+export function requestSessionGroupName(input: {
   mode: "create" | "rename";
   initialName?: string;
 }): Promise<string | null> {
@@ -40,14 +40,14 @@ function finish(name: string | null) {
   request?.resolve(name);
 }
 
-export function ProjectGroupNameDialogHost() {
+export function SessionGroupNameDialogHost() {
   const request = useRequest((state) => state.request);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- resolves any pending name request promise with null when the dialog host unmounts
   useEffect(() => () => finish(null), []);
-  return request ? <ProjectGroupNameDialog key={request.mode} request={request} /> : null;
+  return request ? <SessionGroupNameDialog key={request.mode} request={request} /> : null;
 }
 
-function ProjectGroupNameDialog({ request }: { request: Request }) {
+function SessionGroupNameDialog({ request }: { request: Request }) {
   const id = useId();
   const [name, setName] = useState(request.initialName);
   const trimmed = name.trim();
